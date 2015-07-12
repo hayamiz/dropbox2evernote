@@ -114,7 +114,11 @@ def upload_to_evernote(filename, content)
   puts "Uploading file to Evernote: #{filename}"
 
   res = make_resource(filename, content)
-  note = make_note($note_store, "test title with pdf", "hello with pdf", [res], $notebook)
+  note = make_note($note_store,
+                   "Auto import: #{filename}",
+                   "Uploaded with dropbox2evernote (https://github.com/hayamiz/dropbox2evernote)",
+                   [res],
+                   $notebook)
 
   if note
     puts "  successfully uploaded: #{note.guid}"
@@ -125,7 +129,7 @@ end
 
 def main()
   if DropboxFile.count == 0
-    puts "Initial execution. Build file list first."
+    puts "Initial execution. Build file list first ..."
 
     meta = $dropbox.metadata($config[:target_folder])
     meta["contents"].each do |entry|
@@ -136,6 +140,8 @@ def main()
       dfile = DropboxFile.new(path: path, rev: rev, mtime: Time.parse(mtime))
       dfile.save!
     end
+
+    puts "  done"
   end
 
   puts "Checking updates"
