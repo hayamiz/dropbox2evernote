@@ -2,3 +2,5 @@
 /apitokens/
 /apikeys/evernote.yml
 /config/config.yml
+/config/database.yml
+/db/db.sqlite3
