@@ -191,7 +191,6 @@ def main()
     puts "  done"
   end
 
-  puts "Checking updates"
   meta = $dropbox.metadata($config[:target_folder])
   meta["contents"].each do |entry|
     path = entry["path"]
