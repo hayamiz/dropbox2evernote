@@ -1,0 +1,33 @@
+#!/usr/bin/env ruby
+
+require 'dropbox_sdk'
+require 'yaml'
+
+begin
+  $api_key = YAML.load(open(File.expand_path('../apikeys/dropbox.yml', __FILE__)))
+rescue
+  puts "[ERROR] No API keys found."
+  puts "[ERROR] Create 'apikeys/dropbox.yml' first."
+  exit false
+end
+
+APP_KEY = $api_key[:app_key]
+APP_SECRET = $api_key[:app_secret]
+
+flow = DropboxOAuth2FlowNoRedirect.new(APP_KEY, APP_SECRET)
+
+authorize_url = flow.start()
+
+puts '1. Go to: ' + authorize_url
+puts '2. Click "Allow" (you might have to log in first)'
+puts '3. Copy the authorization code'
+print 'Enter the authorization code here: '
+code = gets.strip
+
+access_token, user_id = flow.finish(code)
+
+File.open(File.expand_path("../apitokens/dropbox", __FILE__), "w", 0600) do |f|
+  f.print(access_token)
+end
+
+puts 'OAuth token was successfully saved to ./apitokens/dropbox'
