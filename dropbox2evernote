@@ -1,0 +1,176 @@
+#!/usr/bin/env ruby
+
+require 'active_record'
+require 'dropbox_sdk'
+require 'time'
+require 'evernote_oauth'
+require 'yaml'
+require 'digest/md5'
+
+$config = YAML.load(open(File.expand_path("../config/config.yml", __FILE__)))
+
+class DropboxFile < ActiveRecord::Base
+end
+DropboxFile.establish_connection(YAML.load(open(File.expand_path("../config/database.yml", __FILE__))))
+
+$dropbox = DropboxClient.new(File.read(File.expand_path("../apitokens/dropbox", __FILE__)).strip)
+developer_token = File.read(File.expand_path("../apitokens/evernote", __FILE__)).strip
+$evernote = EvernoteOAuth::Client.new(token: developer_token)
+
+def make_resource(filename, content)
+  res = Evernote::EDAM::Type::Resource.new
+  case filename
+  when /\.pdf$/
+    res.mime = "application/pdf"
+  when /\.jpg$/
+    res.mime = "image/jpeg"
+  when /\.png$/
+    res.mime = "image/png"
+  when /\.gif$/
+    res.mime = "image/gif"
+  else
+    res.mime = "application/octet-stream"
+  end
+
+  data = Evernote::EDAM::Type::Data.new()
+  data.size = content.size
+  data.body = content
+  data.bodyHash = Digest::MD5.hexdigest(content)
+
+  res.data = data
+  res.attributes = Evernote::EDAM::Type::ResourceAttributes.new()
+  res.attributes.fileName = filename
+
+  res
+end
+
+def make_note(note_store, note_title, note_body, resources=[], parent_notebook=nil)
+  note = Evernote::EDAM::Type::Note.new
+  note.title = note_title
+
+  n_body = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+  n_body += "<!DOCTYPE en-note SYSTEM \"http://xml.evernote.com/pub/enml2.dtd\">"
+  n_body += "<en-note>#{note_body}"
+
+  unless resources.empty?
+    ### Add Resource objects to note body
+    n_body += "<br /><br />"
+    note.resources = resources
+    resources.each do |resource|
+      hash_func = Digest::MD5.new
+      hexhash = hash_func.hexdigest(resource.data.body)
+      n_body += "Attachment with hash #{hexhash}: <br /><en-media type=\"#{resource.mime}\" hash=\"#{hexhash}\" /><br />"
+    end
+  end
+
+  n_body += "</en-note>"
+
+  note.content = n_body
+
+  if parent_notebook && parent_notebook.guid
+    note.notebookGuid = parent_notebook.guid
+  end
+
+  ## Attempt to create note in Evernote account
+  begin
+    note = note_store.createNote(note)
+  rescue Evernote::EDAM::Error::EDAMUserException => edue
+    ## Something was wrong with the note data
+    ## See EDAMErrorCode enumeration for error code explanation
+    ## http://dev.evernote.com/documentation/reference/Errors.html#Enum_EDAMErrorCode
+    puts "EDAMUserException: #{edue}"
+    return nil
+  rescue Evernote::EDAM::Error::EDAMNotFoundException => ednfe
+    ## Parent Notebook GUID doesn't correspond to an actual notebook
+    puts "EDAMNotFoundException: Invalid parent notebook GUID"
+    return nil
+  end
+
+  ## Return created note object
+  note
+end
+
+def upload_to_evernote(filename, content)
+  unless $note_store
+    puts "Obtaining NoteStore instance"
+    $note_store = $evernote.note_store
+  end
+
+  unless $notebook
+    puts "Searching Notebook '#{$config[:notebook_name]}'"
+    notebooks = $note_store.listNotebooks
+    $notebook = notebooks.find do |nb|
+      nb.name == $config[:notebook_name]
+    end
+
+    unless $notebook
+      puts "Notebook '#{$config[:notebook_name]}' not found."
+      puts "  selecting default notebook instead."
+      $notebook = $note_store.getDefaultNotebook
+    end
+    puts "  => #{$notebook.guid}"
+  end
+
+  puts "Uploading file to Evernote: #{filename}"
+
+  res = make_resource(filename, content)
+  note = make_note($note_store, "test title with pdf", "hello with pdf", [res], $notebook)
+
+  if note
+    puts "  successfully uploaded: #{note.guid}"
+  end
+
+  note != nil
+end
+
+def main()
+  if DropboxFile.count == 0
+    puts "Initial execution. Build file list first."
+
+    meta = $dropbox.metadata($config[:target_folder])
+    meta["contents"].each do |entry|
+      path = entry["path"]
+      rev = entry["rev"]
+      mtime = entry["modified"]
+
+      dfile = DropboxFile.new(path: path, rev: rev, mtime: Time.parse(mtime))
+      dfile.save!
+    end
+  end
+
+  puts "Checking updates"
+  meta = $dropbox.metadata($config[:target_folder])
+  meta["contents"].each do |entry|
+    path = entry["path"]
+    rev = entry["rev"]
+    mtime = entry["modified"]
+
+    dfile = DropboxFile.find_by_path(path)
+
+    if dfile.nil?
+      puts "New file detected: #{path}"
+      dfile = DropboxFile.new(path: path, rev: rev, mtime: mtime)
+    elsif dfile.rev != rev
+      puts "File update detected: #{path}"
+      dfile.rev = rev
+      dfile.mtime = mtime
+    else
+      next
+    end
+
+    puts "Obtaining file content from Dropbox ..."
+    content = $dropbox.get_file(path)
+    puts "  done"
+
+    if upload_to_evernote(File.basename(path), content)
+      dfile.save!
+      puts "Updated file metadata database"
+    else
+      puts "Failed to upload to Evernote"
+    end
+
+    puts ""
+  end
+end
+
+main()

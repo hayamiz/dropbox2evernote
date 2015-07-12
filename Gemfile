@@ -1,4 +1,7 @@
 source "https://rubygems.org"
 
 gem 'dropbox-sdk'
-gem 'evernote-thrift'
+gem 'evernote_oauth'
+gem 'ridgepole'
+gem 'sqlite3'
+gem 'activerecord'
