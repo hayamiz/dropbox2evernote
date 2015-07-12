@@ -128,6 +128,10 @@ def upload_to_evernote(filename, content)
 end
 
 def main()
+  # check API availability first
+  $dropbox.metadata("/")
+  $evernote.note_store
+
   if DropboxFile.count == 0
     puts "Initial execution. Build file list first ..."
 
