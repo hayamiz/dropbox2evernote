@@ -1,4 +1,5 @@
 #!/usr/bin/env ruby
+# -*- coding: utf-8 -*-
 
 require 'active_record'
 require 'dropbox_sdk'
@@ -6,6 +7,7 @@ require 'time'
 require 'evernote_oauth'
 require 'yaml'
 require 'digest/md5'
+require 'mail'
 
 $config = YAML.load(open(File.expand_path("../config/config.yml", __FILE__)))
 
@@ -142,6 +144,35 @@ class Evernote::APIUploader
   end
 end
 
+class Evernote::EmailUploader
+  def initialize(email_addr)
+    @email_addr = email_addr
+  end
+
+  def upload(filename, content)
+    puts "Sending file (#{filename}) to Evernote via email"
+
+    Mail.defaults do
+      delivery_method(:smtp, $config[:smtp_options])
+    end
+
+    addr = @email_addr
+    mail = Mail.new do
+      from     "noreply@#{$config[:smtp_options][:domain]}"
+      to       addr
+      subject  "Auto import: #{filename}"
+      body     "#{Time.now.to_s}\nUploaded with dropbox2evernote (https://github.com/hayamiz/dropbox2evernote)"
+      add_file :filename => filename, :content => content
+    end
+
+    mail.deliver!
+
+    puts "  successfully uploaded: #{mail.message_id}"
+
+    true
+  end
+end
+
 def main()
   # check API availability first
   $dropbox.metadata("/")
@@ -187,7 +218,14 @@ def main()
     content = $dropbox.get_file(path)
     puts "  done"
 
-    uploader = Evernote::APIUploader.new($evernote)
+    case $config[:evernote_uploader]
+    when :api
+      uploader = Evernote::APIUploader.new($evernote)
+    when :email
+      uploader = Evernote::EmailUploader.new($config[:evernote_addr])
+    else
+      raise RuntimeError.new("Invalid uploader: #{$config[:evernote_uploader]}")
+    end
 
     if uploader.upload(File.basename(path), content)
       dfile.save!

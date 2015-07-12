@@ -24,6 +24,9 @@ GEM
       oauth (>= 0.4.1)
     i18n (0.7.0)
     json (1.8.3)
+    mail (2.6.3)
+      mime-types (>= 1.16, < 3)
+    mime-types (2.6.1)
     minitest (5.7.0)
     oauth (0.4.7)
     ridgepole (0.6.2)
@@ -40,5 +43,6 @@ DEPENDENCIES
   activerecord
   dropbox-sdk
   evernote_oauth
+  mail
   ridgepole
   sqlite3

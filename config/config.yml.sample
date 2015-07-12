@@ -1,3 +1,15 @@
 
 :target_folder: "/your_folder_name"
 :notebook_name: "Your Evernote Notebook"
+:evernote_uploader: :api # :api or :email. For :email, set up :smtp_options correctly
+:evernote_addr: "foo.bar@m.evernote.com"
+:smtp_options: # used for Evernote::EmailUploader
+  :address: "smtp.example.com"
+  :port: 587
+  :authentication: :plain # nil, :plain, :login, or :cram_md5
+  :user_name: "username"
+  :password: "password"
+  :ssl: false
+  :enable_starttls_auto: true
+  :domain: "hayamiz.com"
+
