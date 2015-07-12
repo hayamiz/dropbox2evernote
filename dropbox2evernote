@@ -227,7 +227,7 @@ def main()
       dfile.save!
       puts "Updated file metadata database"
     else
-      puts "Failed to upload to Evernote"
+      raise RuntimeError.new("Failed to upload to Evernote: #{path}")
     end
 
     puts ""
