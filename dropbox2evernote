@@ -9,6 +9,7 @@ require 'yaml'
 require 'digest/md5'
 require 'mail'
 
+Dir.chdir(File.dirname(__FILE__))
 $config = YAML.load(open(File.expand_path("../config/config.yml", __FILE__)))
 
 class DropboxFile < ActiveRecord::Base
