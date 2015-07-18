@@ -10,7 +10,7 @@ require 'digest/md5'
 require 'mail'
 require 'logger'
 
-$log = Logger.new(File.open(File.expand_path("../log/d2e.log", __FILE__)
+$log = Logger.new(File.open(File.expand_path("../log/d2e.log", __FILE__),
                             "a"))
 $log.level = Logger::DEBUG
 
@@ -34,7 +34,7 @@ class Evernote::APIUploader
 
   def note_store
     unless @_note_store
-      log.info("Obtaining NoteStore instance")
+      $log.info("Obtaining NoteStore instance")
       @_note_store = @client.note_store
     end
 
@@ -43,18 +43,18 @@ class Evernote::APIUploader
 
   def notebook
     unless @_notebook
-      log.info("Searching Notebook '#{$config[:notebook_name]}'")
+      $log.info("Searching Notebook '#{$config[:notebook_name]}'")
       notebooks = self.note_store.listNotebooks
       @_notebook = notebooks.find do |nb|
         nb.name == $config[:notebook_name]
       end
 
       unless @_notebook
-        log.info("Notebook '#{$config[:notebook_name]}' not found.")
-        log.info("  selecting default notebook instead.")
+        $log.info("Notebook '#{$config[:notebook_name]}' not found.")
+        $log.info("  selecting default notebook instead.")
         @_notebook = self.note_store.getDefaultNotebook
       end
-      log.info("  => #{@_notebook.guid}")
+      $log.info("  => #{@_notebook.guid}")
     end
 
     @_notebook
@@ -121,11 +121,11 @@ class Evernote::APIUploader
       ## Something was wrong with the note data
       ## See EDAMErrorCode enumeration for error code explanation
       ## http://dev.evernote.com/documentation/reference/Errors.html#Enum_EDAMErrorCode
-      log.error("EDAMUserException: #{edue}")
+      $log.error("EDAMUserException: #{edue}")
       return nil
     rescue Evernote::EDAM::Error::EDAMNotFoundException => ednfe
       ## Parent Notebook GUID doesn't correspond to an actual notebook
-      log.error("EDAMNotFoundException: Invalid parent notebook GUID")
+      $log.error("EDAMNotFoundException: Invalid parent notebook GUID")
       return nil
     end
 
@@ -134,7 +134,7 @@ class Evernote::APIUploader
   end
 
   def upload(filename, content)
-    log.info("Uploading file to Evernote: #{filename}")
+    $log.info("Uploading file to Evernote: #{filename}")
 
     res = make_resource(filename, content)
     note = make_note("Auto import: #{filename}",
@@ -143,7 +143,7 @@ class Evernote::APIUploader
                      self.notebook)
 
     if note
-      log.info("  successfully uploaded: #{note.guid}")
+      $log.info("  successfully uploaded: #{note.guid}")
     end
 
     note != nil
@@ -156,7 +156,7 @@ class Evernote::EmailUploader
   end
 
   def upload(filename, content)
-    log.info("Sending file (#{filename}) to Evernote via email")
+    $log.info("Sending file (#{filename}) to Evernote via email")
 
     Mail.defaults do
       delivery_method(:smtp, $config[:smtp_options])
@@ -173,15 +173,25 @@ class Evernote::EmailUploader
 
     mail.deliver!
 
-    log.info("  successfully uploaded: #{mail.message_id}")
+    $log.info("  successfully uploaded: #{mail.message_id}")
 
     true
   end
 end
 
+class Evernote::DummyUploader
+  def initialize()
+    $log.debug("Dummy uploader initialized")
+  end
+
+  def upload(filename, content)
+    $log.debug("Dummy uploader is uploading #{filename} (actually do nothing).")
+  end
+end
+
 def main()
   if DropboxFile.count == 0
-    log.info("Initial execution. Build file list first ...")
+    $log.info("Initial execution. Build file list first ...")
 
     meta = $dropbox.metadata($config[:target_folder])
     meta["contents"].each do |entry|
@@ -193,10 +203,12 @@ def main()
       dfile.save!
     end
 
-    log.info("  done")
+    $log.info("  done")
   end
 
+  $log.info("Obtaining dropbox metadata ...")
   meta = $dropbox.metadata($config[:target_folder])
+  $log.info("  => #{meta['contents'].size} files")
   meta["contents"].each do |entry|
     path = entry["path"]
     rev = entry["rev"]
@@ -205,32 +217,43 @@ def main()
     dfile = DropboxFile.find_by_path(path)
 
     if dfile.nil?
-      log.info("New file detected: #{path}")
+      $log.info("New file detected: #{path}")
       dfile = DropboxFile.new(path: path, rev: rev, mtime: mtime)
     elsif dfile.rev != rev
-      log.info("File update detected: #{path}")
+      $log.info("File update detected: #{path}")
       dfile.rev = rev
       dfile.mtime = mtime
     else
       next
     end
 
-    log.info("Obtaining file content from Dropbox ...")
+    $log.info("Obtaining file content from Dropbox ...")
     content = $dropbox.get_file(path)
-    log.info("  done")
+    $log.info("  done")
+
+    if dfile.md5hash && dfile.md5hash == Digest::MD5.hexdigest(content)
+      $log.info("File content does not changed. skip upload.")
+      dfile.save!
+      next
+    end
+
+    dfile.md5hash = Digest::MD5.hexdigest(content)
+    dfile.save!
 
     case $config[:evernote_uploader]
     when :api
       uploader = Evernote::APIUploader.new($evernote)
     when :email
       uploader = Evernote::EmailUploader.new($config[:evernote_addr])
+    when :dummy
+      uploader = Evernote::DummyUploader.new()
     else
       raise RuntimeError.new("Invalid uploader: #{$config[:evernote_uploader]}")
     end
 
     if uploader.upload(File.basename(path), content)
       dfile.save!
-      log.info("Updated file metadata database")
+      $log.info("Updated file metadata database")
     else
       raise RuntimeError.new("Failed to upload to Evernote: #{path}")
     end
