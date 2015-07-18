@@ -238,7 +238,6 @@ def main()
     end
 
     dfile.md5hash = Digest::MD5.hexdigest(content)
-    dfile.save!
 
     case $config[:evernote_uploader]
     when :api
